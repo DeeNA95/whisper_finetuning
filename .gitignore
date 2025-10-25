@@ -1,0 +1,10 @@
+fisd*/
+checkpoints/
+audio/
+*.zip
+.venv/
+.ruff_cache
+__pycache__/
+.DS_Store
+__MACOSX/
+.ipynb_checkpoints/
