@@ -8,6 +8,7 @@ import torch
 import torch.nn as nn
 import whisper
 from datasets import Audio, load_dataset
+from datasets import Dataset as hfDataset
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
@@ -18,7 +19,7 @@ logger = logging.getLogger(__name__)
 # Check available devices and set the device
 device = select_device()
 print(f"Using device: {device}")
-
+PYTORCH_MPS_HIGH_WATERMARK_RATIO=0.0
 model = whisper.load_model("large")
 model = model.to(device)
 
@@ -40,7 +41,8 @@ print(f"Trainable: {trainable:,} ({100 * trainable / total:.2f}%)")
 
 
 # load dataset
-dataset = load_dataset("MrDragonFox/Elise")
+# dataset = load_dataset("MrDragonFox/Elise")
+dataset = hfDataset.load_from_disk('datasets/akuapim_whisper/')
 dataset = dataset.cast_column("audio", Audio(sampling_rate=16000))
 
 tokenizer = build_tokenizer(model, language="en", task="transcribe")
@@ -204,7 +206,7 @@ def create_train_val_split(dataset, test_size=0.2, seed=42):
     if isinstance(dataset, DatasetDict):
         if "train" in dataset and "test" in dataset:
             return dataset
-        dataset = dataset["train"]
+        dataset = dataset
 
     # Create split
     split_dataset = dataset.train_test_split(
@@ -218,7 +220,7 @@ def create_train_val_split(dataset, test_size=0.2, seed=42):
 
 
 split_dataset = create_train_val_split(
-    dataset["train"],
+    dataset,
     test_size=0.2,
     seed=42,  # Assuming single 'train' split
 )

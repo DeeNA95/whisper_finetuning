@@ -240,7 +240,7 @@ def preprocess_audio(
         max_duration_seconds=max_duration_seconds,
     )
     mel = whisper.log_mel_spectrogram(waveform, n_mels=128)
-    print(mel.shape)
+    
 
     logger.info("✅ ***** Whisper audio preprocessing done.")
     return mel
