@@ -3,6 +3,8 @@ checkpoints/
 audio/
 *.zip
 .venv/
+venv/
+datasets/
 .ruff_cache
 __pycache__/
 .DS_Store
