@@ -10,3 +10,5 @@ __pycache__/
 .DS_Store
 __MACOSX/
 .ipynb_checkpoints/
+best_model.pt
+#modal run --detach whisper_finetune.py
