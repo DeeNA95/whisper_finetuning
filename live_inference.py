@@ -29,7 +29,7 @@ class LiveTranscriptionConfig:
 
     def __init__(
         self,
-        model_size: str = "tiny",
+        model_size: str = "large",
         checkpoint_path: Optional[Path] = None,
         sample_rate: int = 16000,
         chunk_seconds: float = 5.0,

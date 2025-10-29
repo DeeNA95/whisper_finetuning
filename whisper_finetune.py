@@ -26,7 +26,7 @@ def select_device(preferred_device=None):
         device = torch.device("cpu")
     return device
 
-def build_tokenizer(model, language="en", task="transcribe"):
+def build_tokenizer(model, language=None, task="transcribe"):
     import whisper
     tokenizer = whisper.tokenizer.get_tokenizer(
         multilingual=model.is_multilingual,
@@ -84,18 +84,23 @@ def train():
     model = whisper.load_model("large")
     model = model.to(device)
 
-    # last 2 decoders and layer norm
-    # Freeze everything first
     for param in model.parameters():
         param.requires_grad = False
 
-    # Unfreeze the last 2 decoder layers and layer norm
-    for param in model.decoder.blocks[-2:].parameters():
+        # Unfreeze last encoder layer
+    for param in model.encoder.blocks[-2:].parameters():
+        param.requires_grad = True
+
+    # Unfreeze last 4 decoder layers (not just 1)
+    for param in model.decoder.blocks[-4:].parameters():
+        param.requires_grad = True
+
+    # Both layer norms
+    for param in model.encoder.ln_post.parameters():
         param.requires_grad = True
     for param in model.decoder.ln.parameters():
         param.requires_grad = True
-
-    # Verify
+        # Verify
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     total = sum(p.numel() for p in model.parameters())
     print(f"Trainable: {trainable:,} ({100 * trainable / total:.2f}%)")
@@ -106,7 +111,7 @@ def train():
     dataset = hfDataset.load_from_disk('/datasets/akuapim_whisper/')
     dataset = dataset.cast_column("audio", Audio(sampling_rate=16000))
 
-    tokenizer = build_tokenizer(model, language="en", task="transcribe")
+    tokenizer = build_tokenizer(model, language=None, task="transcribe")
 
 
     class WhisperDataset(Dataset):
@@ -301,18 +306,18 @@ def train():
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=4,  # Small batch for limited data
+        batch_size=8,  # Small batch for limited data
         shuffle=True,
-        num_workers=0,  # Adjust based on CPU cores
+        num_workers=2,  # Adjust based on CPU cores
         collate_fn=whisper_collate_fn,
         pin_memory=True if device == "cuda" else False,
     )
 
     val_loader = DataLoader(
         val_dataset,
-        batch_size=4,
+        batch_size=8,
         shuffle=False,
-        num_workers=0,
+        num_workers=2,
         collate_fn=whisper_collate_fn,
         pin_memory=True if device == "cuda" else False,
     )
@@ -327,42 +332,42 @@ def train():
     print(f"   labels: {batch['labels'].shape}")  # (batch, max_length)
     print(f"   dec_input_ids: {batch['dec_input_ids'].shape}")  # (batch, max_length)
 
-    # Verify label/decoder input alignment
-    print("\n🔍 Verifying label/decoder input alignment...")
-    for i in range(min(10, batch["labels"].shape[0])):  # Check first 10 samples
-        dec_input = batch["dec_input_ids"][i]
-        labels = batch["labels"][i]
+    # # Verify label/decoder input alignment
+    # print("\n🔍 Verifying label/decoder input alignment...")
+    # for i in range(min(10, batch["labels"].shape[0])):  # Check first 10 samples
+    #     dec_input = batch["dec_input_ids"][i]
+    #     labels = batch["labels"][i]
 
-        print(f"\nSample {i}:")
-        print(f"   Decoder input first 10: {dec_input[:10].tolist()}")
-        print(f"   Labels first 10: {labels[:10].tolist()}")
+    #     print(f"\nSample {i}:")
+    #     print(f"   Decoder input first 10: {dec_input[:10].tolist()}")
+    #     print(f"   Labels first 10: {labels[:10].tolist()}")
 
-        # Check alignment
-        print(
-            f"   Decoder starts with SOT ({tokenizer.sot})? {dec_input[0].item() == tokenizer.sot}"
-        )
-        print(
-            f"   Labels start with text token (not SOT)? {labels[0].item() != tokenizer.sot}"
-        )
-        print(f"   No -100 at position 0? {labels[0].item() != -100}")
+    #     # Check alignment
+    #     print(
+    #         f"   Decoder starts with SOT ({tokenizer.sot})? {dec_input[0].item() == tokenizer.sot}"
+    #     )
+    #     print(
+    #         f"   Labels start with text token (not SOT)? {labels[0].item() != tokenizer.sot}"
+    #     )
+    #     print(f"   No -100 at position 0? {labels[0].item() != -100}")
 
-        # Check teacher forcing alignment
-        # dec_input[0] should predict labels[0]
-        # dec_input[1] should predict labels[1], etc.
-        aligned = True
-        for j in range(min(5, len(dec_input) - 1)):
-            if labels[j].item() == -100:
-                break
-            if j < len(dec_input) - 1 and dec_input[j + 1].item() != labels[j].item():
-                aligned = False
-                print(
-                    f"   Mismatch at position {j}: dec_input[{j + 1}]={dec_input[j + 1].item()} != labels[{j}]={labels[j].item()}"
-                )
+    #     # Check teacher forcing alignment
+    #     # dec_input[0] should predict labels[0]
+    #     # dec_input[1] should predict labels[1], etc.
+    #     aligned = True
+    #     for j in range(min(5, len(dec_input) - 1)):
+    #         if labels[j].item() == -100:
+    #             break
+    #         if j < len(dec_input) - 1 and dec_input[j + 1].item() != labels[j].item():
+    #             aligned = False
+    #             print(
+    #                 f"   Mismatch at position {j}: dec_input[{j + 1}]={dec_input[j + 1].item()} != labels[{j}]={labels[j].item()}"
+    #             )
 
-        if aligned:
-            print("   ✅ Teacher forcing alignment looks correct!")
-        else:
-            print("   ❌ Teacher forcing alignment issue detected!")
+    #     if aligned:
+    #         print("   ✅ Teacher forcing alignment looks correct!")
+    #     else:
+    #         print("   ❌ Teacher forcing alignment issue detected!")
 
 
     def train_epoch(
@@ -493,7 +498,7 @@ def train():
 
     # Initialize optimizer and loss function
     optimizer = AdamW(
-        filter(lambda p: p.requires_grad, model.parameters()), lr=1e-3, weight_decay=0.01
+        filter(lambda p: p.requires_grad, model.parameters()), lr=1e-5, weight_decay=0.01
     )
 
     # Cross-entropy loss (ignores -100 labels)
@@ -509,7 +514,7 @@ def train():
     print(f"Device: {device}")
     print(f"Trainable parameters: {trainable:,} ({100 * trainable / total:.2f}%)")
     print(f"Batch size: 4")
-    print(f"Learning rate: 1e-4")
+    print(f"Learning rate: 1e-5")
     print(f"Optimizer: AdamW (weight_decay=0.01)")
     print(f"Scheduler: CosineAnnealingLR")
     print(f"Loss function: CrossEntropyLoss")
@@ -587,7 +592,7 @@ def train():
         # Save checkpoint if validation loss improved
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            checkpoint_path = checkpoint_dir / "best_model.pt"
+            checkpoint_path = checkpoint_dir / "best_model_run2.pt"
             torch.save(
                 {
                     "epoch": epoch,
@@ -604,7 +609,7 @@ def train():
             print(f"   💾 Checkpoint saved to {checkpoint_path}")
 
         # Save latest checkpoint
-        latest_checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch}.pt"
+        latest_checkpoint_path = checkpoint_dir / f"checkpoint_epoch_{epoch}_run2.pt"
         torch.save(
             {
                 "epoch": epoch,
