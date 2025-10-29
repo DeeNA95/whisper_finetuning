@@ -87,7 +87,8 @@ def load_finetuned_model(
     logger.debug(f"📄 {model_size = }")
     logger.debug(f"📄 {checkpoint_path = }")
 
-    resolved_device = device or select_device()
+    # resolved_device = device or select_device()
+    resolved_device = torch.device("cpu")
     logger.debug(f"🖥️ {resolved_device = }")
 
     model = whisper.load_model(model_size)
